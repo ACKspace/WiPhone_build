@@ -1,0 +1,499 @@
+diff --git a/GUI.cpp b/GUI.cpp
+index 6af2312..650f5e6 100644
+--- a/GUI.cpp
++++ b/GUI.cpp
+@@ -658,7 +658,7 @@ appEventResult GUI::processEvent(uint32_t now, EventType event) {
+             state.locked = false;
+             res |= REDRAW_SCREEN | LOCK_UNLOCK;
+           }
+-          if (state.unlockButton1) {
++          if (state.unlockButton1 && event != WIPHONE_KEY_UP & event != WIPHONE_KEY_DOWN && event != WIPHONE_KEY_LEFT && event != WIPHONE_KEY_RIGHT ) {
+             state.unlockButton1 = 0;
+             res |= REDRAW_FOOTER;
+             log_d("state.unlockButton1 cleared");
+@@ -1464,6 +1464,9 @@ void GUI::enterApp(ActionID_t app) {
+   case GUI_APP_EDITWIFI:
+     runningApp = new EditNetworkApp(*screen, state, NULL, header, footer);
+     break;
++  case GUI_APP_EDITLORA:
++    runningApp = new EditLoRaApp(*screen, state, NULL, header, footer);
++    break;
+   case GUI_APP_TIME_CONFIG:
+     runningApp = new TimeConfigApp(*screen, state, header, footer);
+     break;
+@@ -5361,6 +5364,392 @@ void EditNetworkApp::redrawScreen(bool redrawAll) {
+   screenInited = true;
+ }
+ 
++// - - - - - - - - - - - - - - - - - - - - - - - - - - - -  EditLoRa app  - - - - - - - - - - - - - - - - - - - - - - - - - - - -
++
++EditLoRaApp::EditLoRaApp(LCD& lcd, ControlState& state, const char* SSID, HeaderWidget* header, FooterWidget* footer)
++  : WindowedApp(lcd, state, header, footer), FocusableApp(5), ini(Storage::ConfigsFile) {
++  log_d("EditLoRaApp");
++
++  if (ini.load() || ini.restore()) {
++    if (ini.isEmpty() || !ini[0].hasKey("v") || strcmp(ini[0]["v"], "1")) {
++      log_d("unknown version or corrupt \"%s\" file", ini.filename());
++    }
++  } else {
++    ini[0]["desc"] = "WiPhone general configs";
++    ini[0]["v"] = "1";
++  }
++  IF_LOG(VERBOSE)
++  ini.show();
++
++  if (!ini.hasSection("lora")) {
++    log_e("adding section `lora`");
++    ini.addSection("lora");
++    ini["lora"]["lora_freq"] = "868.0";
++  }
++
++  // if SSID is NULL - it is run as a standalone app (if yes - edit the current network)
++  standAloneApp = false;
++  if (SSID == NULL) {
++    standAloneApp = true;
++
++    // Load current network name (connected or previously connected)
++    if (wifiState.ssid() != NULL) {
++      SSID = wifiState.ssid();
++      log_v("SSID: %s", SSID);
++    }
++  }
++
++  // Is this network connected?
++  connectedNetwork = false;
++  if ( SSID != NULL && (SSID == wifiState.ssid() || (wifiState.ssid()!=NULL && !strcmp(wifiState.ssid(), SSID)) ) ) {       // network name coincides
++    if (wifiState.isConnected()) {
++      log_d("network is connected");
++      connectedNetwork = true;
++    }
++  }
++
++  // Is this network in list of known networks?
++  knownNetwork = ini.query("s", SSID) >= 0;         // find a section with field "s" (SSID) equal to the current network SSID
++
++  // Create and arrange general widgets
++  header->setTitle("Edit Network");
++  footer->setButtons("Connect", "Clear");
++
++  clearRect = new RectWidget(0, header->height(), lcd.width(), lcd.height() - header->height() - footer->height(), WP_COLOR_1);
++
++  uint16_t yOff = header->height() + 5;
++
++  // Add form
++  this->addLabelInput(yOff, ssidLabel, ssidInput, "SSID:", 50);
++  this->addLabelInput(yOff, passLabel, passInput, "Password:", 100);
++
++  const uint16_t spacing = 6; // 4
++  const uint16_t xOff = 2;
++  yOff += spacing*2;
++  lcd.setTextFont(fonts[OPENSANS_COND_BOLD_20]);
++  uint16_t buttonSize1 = lcd.textWidth("Forget") + BUTTON_PADDING;
++  uint16_t buttonSize2 = lcd.textWidth("Disconnect ") + BUTTON_PADDING;
++  saveButton = new ButtonWidget(xOff, yOff, "Save");
++
++  forgetButton = NULL;
++  connectionButton = NULL;
++  wifiOnOff = NULL;
++  if (knownNetwork) {
++    forgetButton = new ButtonWidget(xOff + saveButton->width() + 2*spacing, yOff, "Forget");
++
++    yOff += saveButton->height() + spacing*2;
++    connectionButton = new ButtonWidget(xOff, yOff, connectedNetwork ? "Disconnect" : "Connect", ButtonWidget::textWidth("Connecting")+18);
++
++    wifiOnOff = new ChoiceWidget(0, yOff+connectionButton->height(), lcd.width(), 35);
++    wifiOnOff->addChoice("WIFI-ON");
++    wifiOnOff->addChoice("WIFI-OFF");
++    if(wifiOn){
++      wifiOnOff->setValue(0);
++    } else {
++      wifiOnOff->setValue(1);
++    }
++
++    yOff += wifiOnOff->height();
++  
++  } else {
++    
++    wifiOnOff = new ChoiceWidget(0, yOff+saveButton->height(), lcd.width(), 35);
++    wifiOnOff->addChoice("WIFI-ON");
++    wifiOnOff->addChoice("WIFI-OFF");
++    if(wifiOn){
++      wifiOnOff->setValue(0);
++    } else {
++      wifiOnOff->setValue(1);
++    }
++
++    yOff += wifiOnOff->height();
++  
++  }
++
++  // Load password / populate text
++  if (SSID != NULL) {
++    ssidInput->setText(SSID);
++    int index = ini.query("s", SSID);           // "s" - stands for "SSID"
++    if (index>=0 && ini[index].hasKey("p")) {   // "p" - stands for "password"
++      passInput->setText(ini[index]["p"]);
++    }
++  } else {
++    ssidInput->setText("");
++    passInput->setText("");
++  }
++
++  // Focusables
++  addFocusableWidget(ssidInput);
++  addFocusableWidget(passInput);
++  addFocusableWidget(saveButton);
++  if (forgetButton != NULL) {
++    addFocusableWidget(forgetButton);
++  }
++  if (connectionButton != NULL) {
++    addFocusableWidget(connectionButton);
++  }
++  if (wifiOnOff != NULL) {
++    addFocusableWidget(wifiOnOff);
++  }
++  
++  setFocus(ssidInput);
++  screenInited = false;
++}
++
++EditLoRaApp::~EditLoRaApp() {
++  log_d("destroy EditLoRaApp");
++
++  ini.backup();
++
++  delete clearRect;
++  delete ssidLabel;
++  delete ssidInput;
++  delete passLabel;
++  delete passInput;
++  delete saveButton;
++  if(wifiOnOff){
++    delete wifiOnOff;
++  }
++  
++}
++
++appEventResult EditLoRaApp::processEvent(EventType event) {
++  log_d("processEvent EditLoRaApp");
++
++  bool quit = false;
++
++  FocusableWidget* focusedWidget = getFocused();
++
++  if (event == WIPHONE_KEY_DOWN || event == WIPHONE_KEY_UP) {
++
++    // Change focus
++    nextFocus(event == WIPHONE_KEY_DOWN);
++
++  } else if (event == WIPHONE_KEY_END) {
++
++    quit = true;
++
++  } else if (LOGIC_BUTTON_OK(event) && focusedWidget == saveButton) {
++
++    // If "OK" was pressed while one of saveButton selected
++
++    // Save new WiFi credentials to NVS
++    log_d("save button pressed");
++
++    // Reflect changes to NanoINI
++    int index = ini.query("s", ssidInput->getText());       // "s" key stands for "SSID"
++    if (index >= 0) {
++      ini[index]["p"] = passInput->getText();               // update password for a known network ("p" key")
++    } else {
++      int i = ini.addSection();
++      ini[i]["s"] = ssidInput->getText();
++      ini[i]["p"] = passInput->getText();
++      // TODO: maybe we don't always want to set the network as preferred?
++      ini.setUniqueFlag(i, "m");                            // "m" (for "main") is the preferred network flag
++    }
++
++    // Save to file, reload current network
++    {
++      ini.store();
++      log_d("saved network");
++
++      log_d("disconnecting");
++      wifiState.disconnect();
++
++      // Update the WiFi credentials from NVS
++      // TODO: clean it up
++      wifiState.loadPreferred();
++      wifiState.loadNetworkSettings(ssidInput->getText());
++
++      // Quit from the app
++      quit = true;
++    }
++
++  } else if (LOGIC_BUTTON_OK(event) && forgetButton!=NULL && focusedWidget == forgetButton) {
++
++    log_d("forget button pressed");
++    int i = ini.query("s", ssidInput->getText());     // TODO: consider that there might be multiple networks with this name
++    if (i>=0) {
++      bool removed = false;
++      if (ini.removeSection(i)) {
++        log_d("Network forgotten: %s", ssidInput->getText());
++        removed = ini.store();
++      }
++      if (!removed) {
++        log_d("COULD NOT BE REMOVED: %s", ssidInput->getText());
++      }
++      quit = true;
++    }
++    wifiState.disable();
++
++  } else if (event==WIPHONE_KEY_CALL || event==WIPHONE_KEY_SELECT || (LOGIC_BUTTON_OK(event) && connectionButton!=NULL && focusedWidget == connectionButton) ) {
++
++    // Conect to the network event
++
++    // TODO: move actual connecting / unconnecting to the main cycle?
++    // TODO: after the credentials have changed, disable "Connect" button
++
++    log_d("connection button pressed");
++    if (connectedNetwork) {
++      log_d("disconnecting");
++      //wifiState.disconnect();
++      wifiState.disable();
++      quit = true;
++
++      int index = ini.query("s", ssidInput->getText());       // "s" key stands for "SSID"
++      if (index >= 0) {
++        ini[index]["disabled"] = "true";
++        ini.store();
++      } 
++    } else {
++      if (wifiState.connectTo(ssidInput->getText())) {
++        log_d("connecting: %s", ssidInput->getText());
++
++        int index = ini.query("s", ssidInput->getText());       // "s" key stands for "SSID"
++        if (index >= 0) {
++          ini[index]["disabled"] = "false";
++          ini.store();
++        } 
++
++        // Change button appearance
++        connectionButton->setText("Connecting");
++        //((GUIWidget*) connectionButton)->redraw(lcd);         // TODO: works, but doesn't separate event processing from redrawing well (move connecting logic elsewhere)
++
++        int i = ini.query("s", ssidInput->getText());                   // "s" for "SSID"
++        if (i >= 0 && ini.setUniqueFlag(i, "m") && ini.store()) {       // "m" for "main" (preferred network)
++          log_d("set as preferred network");
++        }
++
++        // Wait for result
++        // TODO: move actual connecting elsewhere
++        log_d("waiting for connectionEvent");
++        for (uint8_t j=0; j<50 && !wifiState.isConnectionEvent(); j++) {
++          delay(100);
++        }
++
++        // Quit or stay
++        if (wifiState.isConnectionEvent()) {
++          log_d("connection event happened");
++          delay(100);
++          quit = true;
++        } else {
++          log_d("connection timeout");
++
++          // Restore button appearance
++          connectionButton->setText("Connect");
++          //((GUIWidget*) connectionButton)->redraw(lcd);       // Works, but doesn't separate event processing from redrawing well
++        }
++
++      } else {
++        log_d("could not connect: %s", ssidInput->getText());
++      }
++    }
++
++  } else {
++
++    // Pass button to whatever is focused
++
++    if (focusedWidget != NULL) {
++      focusedWidget->processEvent(event);
++    }
++
++  }
++
++  
++  if (wifiOnOff != NULL) {
++      log_e("wifiOnOff: %d", wifiOnOff->getValue());
++      esp_err_t err;
++      switch (wifiOnOff->getValue()) {
++      case 0: // wifi ON
++        wifiOn = true;
++        err = esp_wifi_start();
++        if(err != ESP_OK) {
++          log_e("WIFI cann't be started");
++        } else {
++          log_d("WIFI will Start");
++          
++          connectedNetwork = false;
++          
++          if(ssidInput->getText() != NULL){
++            if (wifiState.connectTo(ssidInput->getText())) {
++              log_d("connecting: %s", ssidInput->getText());
++
++              int i = ini.query("s", ssidInput->getText());                   // "s" for "SSID"
++              if (i >= 0 && ini.setUniqueFlag(i, "m") && ini.store()) {       // "m" for "main" (preferred network)
++                log_d("set as preferred network");
++              }
++
++              log_d("waiting for connectionEvent");
++              for (uint8_t j=0; j<50 && !wifiState.isConnectionEvent(); j++) {
++                delay(100);
++              }
++
++              if (wifiState.isConnectionEvent()) {
++                log_d("connection event happened");
++                delay(100);
++                connectionButton->setText("Disconnect");
++              } else {
++                log_d("connection timeout");
++              }
++
++            } else {
++              log_d("could not connect: %s", ssidInput->getText());
++            }
++          }
++        }
++        break;
++      case 1: // wifi OFF
++        wifiOn = false;
++        err = esp_wifi_stop();
++        if(err != ESP_OK) {
++          log_e("WIFI cann't be stopped");
++        } else {
++          log_d("WIFI will be stopped");
++          connectedNetwork = true;
++          if (connectedNetwork) {
++          log_d("disconnecting");
++          
++          wifiState.disable();
++          }
++    
++        }
++        break;
++      default:
++        log_e("Unknown UDP-SIP - TCP-SIP selection: %d", wifiOnOff->getValue());
++        
++      }
++    }
++
++  
++  
++
++  return quit ? EXIT_APP : REDRAW_ALL;
++}
++
++void EditLoRaApp::redrawScreen(bool redrawAll) {
++  log_d("redrawScreen EditLoRaApp");
++
++  if (!screenInited || redrawAll) {
++    ((GUIWidget*) clearRect)->redraw(lcd);
++    ((GUIWidget*) ssidLabel)->redraw(lcd);
++    ((GUIWidget*) passLabel)->redraw(lcd);
++  }
++  ((GUIWidget*) ssidInput)->redraw(lcd);
++  ((GUIWidget*) passInput)->redraw(lcd);
++  ((GUIWidget*) saveButton)->redraw(lcd);
++  if (forgetButton != NULL) {
++    ((GUIWidget*) forgetButton)->redraw(lcd);
++  }
++  if (connectionButton != NULL) {
++    ((GUIWidget*) connectionButton)->redraw(lcd);
++  }
++  if (wifiOnOff != NULL) {
++    ((GUIWidget*) wifiOnOff)->redraw(lcd);
++  }
++  
++  screenInited = true;
++}
++
+ // - - - - - - - - - - - - - - - - - - - - - - - - - - - -  TimeConfig app  - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ 
+ TimeConfigApp::TimeConfigApp(LCD& lcd, ControlState& state, HeaderWidget* header, FooterWidget* footer)
+@@ -5521,7 +5910,11 @@ ScreenConfigApp::ScreenConfigApp(LCD& lcd, ControlState& state, HeaderWidget* he
+     ini.addSection("lock");
+     ini["lock"]["lock_keyboard"] = "1";
+   }
+-
++  if (!ini.hasSection("lora")) {
++    log_e("adding section `lora`");
++    ini.addSection("lora");
++    ini["lora"]["lora_freq"] = "868.0";
++  }
+   // Create and arrange general widgets
+   header->setTitle("Screen settings");
+   footer->setButtons("Save", "Clear");
+@@ -5548,6 +5941,8 @@ ScreenConfigApp::ScreenConfigApp(LCD& lcd, ControlState& state, HeaderWidget* he
+   this->addInlineLabelInput(yOff, labelWidth, sleepAfterLabel, sleepAfterInput, "Sleep after, s", 6, InputType::Numeric);
+   yOff += 1;
+   this->addInlineLabelYesNo(yOff, labelWidth, lockingLabel, lockingChoice, "Lock screen");
++  yOff += 1;
++  this->addInlineLabelInput(yOff, labelWidth, loraLabel, loraInput, "LoRa frequency, MHz", 868.0, InputType::Numeric);
+   this->addRuler(yOff, ruler3, rulerOff);
+ 
+   this->errorLabel = new LabelWidget(0, yOff, lcd.width(), 25, "", TFT_RED, WP_COLOR_1, fonts[AKROBAT_BOLD_18], LabelWidget::LEFT_TO_RIGHT, 8);
+@@ -5555,6 +5950,7 @@ ScreenConfigApp::ScreenConfigApp(LCD& lcd, ControlState& state, HeaderWidget* he
+ 
+   // Populate form
+   lockingChoice->setValue((bool) ini["lock"].getIntValueSafe("lock_keyboard", 0));
++  //loraFreq->setValue((float) ini["lora"].getFloatValueSafe("lora_freq", 868.0));
+   dimmingChoice->setValue((bool) ini["screen"].getIntValueSafe("dimming", 0));
+   sleepingChoice->setValue((bool) ini["screen"].getIntValueSafe("sleeping", 0));
+ 
+@@ -5564,6 +5960,8 @@ ScreenConfigApp::ScreenConfigApp(LCD& lcd, ControlState& state, HeaderWidget* he
+   dimAfterInput->setText(ini["screen"].getValueSafe("dim_after_s", ""));
+   sleepAfterInput->setText(ini["screen"].getValueSafe("sleep_after_s", ""));
+ 
++  loraInput->setText(ini["lora"].getValueSafe("lora_freq", ""));
++
+   // Preserve old values
+   this->oldDimAfter = ini["screen"].getIntValueSafe("dim_after_s", 20);
+   this->oldSleepAfter = ini["screen"].getIntValueSafe("sleep_after_s", 30);
+@@ -5581,6 +5979,9 @@ ScreenConfigApp::ScreenConfigApp(LCD& lcd, ControlState& state, HeaderWidget* he
+ 
+   this->addFocusableWidget(sleepingChoice);
+   this->addFocusableWidget(sleepAfterInput);
++
++  this->addFocusableWidget(loraInput);
++
+   this->addFocusableWidget(lockingChoice);
+ 
+   this->setFocus(brightLevelSlider);
+@@ -5605,6 +6006,8 @@ ScreenConfigApp::~ScreenConfigApp() {
+   delete dimAfterInput;
+   delete sleepAfterLabel;
+   delete sleepAfterInput;
++  delete loraLabel;
++  delete loraInput;
+   delete errorLabel;
+   delete ruler1;
+   delete ruler2;
+@@ -5714,6 +6117,7 @@ appEventResult ScreenConfigApp::processEvent(EventType event) {
+       ini["screen"]["sleeping"] = (int32_t)sleepingChoice->getValue();
+       ini["screen"]["dimming"] = (int32_t)dimmingChoice->getValue();
+       ini["lock"]["lock_keyboard"] = (int32_t)lockingChoice->getValue();
++      //ini["lora"]["lora_freq"] = (float)loraFreq->getValue(); // TODO
+       ini["screen"]["dim_level"] = (int32_t)dimLevelSlider->getValue();
+       ini["screen"]["bright_level"] = (int32_t)brightLevelSlider->getValue();
+       ini["screen"]["dim_after_s"] = dimAfter;
+@@ -5794,6 +6198,7 @@ void ScreenConfigApp::redrawScreen(bool redrawAll) {
+     ((GUIWidget*) sleepingLabel)->redraw(lcd);
+     ((GUIWidget*) dimAfterLabel)->redraw(lcd);
+     ((GUIWidget*) sleepAfterLabel)->redraw(lcd);
++    ((GUIWidget*) loraLabel)->redraw(lcd);
+   }
+   ((GUIWidget*) lockingChoice)->refresh(lcd, redrawAll);
+   ((GUIWidget*) dimmingChoice)->refresh(lcd, redrawAll);
+@@ -5802,6 +6207,8 @@ void ScreenConfigApp::redrawScreen(bool redrawAll) {
+   ((GUIWidget*) dimLevelSlider)->refresh(lcd, redrawAll);
+   ((GUIWidget*) dimAfterInput)->refresh(lcd, redrawAll);
+   ((GUIWidget*) sleepAfterInput)->refresh(lcd, redrawAll);
++  ((GUIWidget*) loraInput)->refresh(lcd, redrawAll);
++
+   ((GUIWidget*) errorLabel)->refresh(lcd, redrawAll);
+ 
+   this->screenInited = true;

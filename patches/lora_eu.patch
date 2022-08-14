@@ -1,0 +1,13 @@
+diff --git a/Hardware.h b/Hardware.h
+index b0ebf6b..b1311f1 100644
+--- a/Hardware.h
++++ b/Hardware.h
+@@ -152,7 +152,7 @@ extern SX1509 gpioExtender;
+ #define HSPI_SCLK   14
+ #define HSPI_SS     27
+ 
+-#define RF95_FREQ 915.0
++#define RF95_FREQ 868.0
+ //#endif
+ 
+ /* ===========Daughter Board Serial========= */

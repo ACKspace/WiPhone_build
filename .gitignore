@@ -1,0 +1,8 @@
+WiPhone*/
+arduino_cache*/
+arduino_build*/
+unused/
+*.zip
+*.bin
+*.ini
+

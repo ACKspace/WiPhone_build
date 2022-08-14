@@ -1,0 +1,11 @@
+diff --git a/data/ota.ini b/data/ota.ini
+index f60e526..bdb5023 100644
+--- a/data/ota.ini
++++ b/data/ota.ini
+@@ -1,5 +1,5 @@
+ autoUpdate=yes
+-serverIni=https://my-firmware-url/fw.ini
++serverIni=https://ackspace.nl/WiPhone/WiPhone.ini
+ errorCode=-404
+ errorString=Not found
+ serverVersion=0.0.1

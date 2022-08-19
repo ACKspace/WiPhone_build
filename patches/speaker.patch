@@ -1,0 +1,13 @@
+diff --git a/GUI.cpp b/GUI.cpp
+index 6af2312..f1a120a 100644
+--- a/GUI.cpp
++++ b/GUI.cpp
+@@ -4693,7 +4693,7 @@ CallApp::CallApp(Audio* audio, LCD& lcd, ControlState& state, bool isCaller, Hea
+   
+   reasonHash = hash_murmur(s);
+   log_i("hash_murmur");  
+-  audio->chooseSpeaker(LOUDSPEAKER);
++  audio->chooseSpeaker(EARSPEAKER);
+ }
+ 
+ CallApp::~CallApp() {

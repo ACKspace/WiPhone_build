@@ -2,7 +2,7 @@
 build
 =====
 
-*Either* edit the defaults at the top of `compile.sh`: to make sure the used directories are correct (and set a version suffix: x for xopr ;)
+*Either* edit the defaults at the top of `build.sh`: to make sure the used directories are correct (and set a version suffix: x for xopr ;)
 ```
 # Defaults
 VERSION_SUFFIX=<suffix>
@@ -21,7 +21,7 @@ UPLOAD_PATH=<scp path>
      -u, --upload <path>      upload to remote path
 ```
 
-Place the WiPhone-*.zip file in the root of this directory and run `./compile.sh` (optionally with parameters listed above)
+Place the WiPhone-*.zip file in the root of this directory and run `./build.sh` (optionally with parameters listed above)
 
 other parameters
 ----------------
@@ -64,13 +64,33 @@ By default, the build script runs the following (tag included, disable with `-no
 
 generate patch
 ==============
+
 To start a clean branch where one can write patches:
-* `./compile.sh -x -o -c -r -f -n -v`
+* `./build.sh -x -o -c -r -f -n -v`
     * no suffix, patch, compile, restore, OTA or upload
 * Navigate inside the `Wiphone/` directory
     * Do some coding
     * Generate patches: `git diff HEAD -- [file] > ../patches/my_work.patch`
     * optionally reset the project with `git reset --hard` for the next topic
+
+list of patches
+===============
+
+The following patches are currently created (on file)
+* version (done automatically in the build script): `config.h`
+* configs (timezone, lock, LoRa): `data/configs.ini`
+* OTA URL: `data/ota.ini`
+* EU LoRa frequency: `Hardware.h` (See https://github.com/ESP32-WiPhone/wiphone-firmware/issues/24)
+* lock screen ignore keys: `GUI.cpp`(See https://github.com/ESP32-WiPhone/wiphone-firmware/issues/28)
+* Loud speaker: `GUI.cpp` (See https://github.com/ESP32-WiPhone/wiphone-firmware/issues/3)
+* TODO (look into possibilities):
+    * Full LoRa menu: https://github.com/ESP32-WiPhone/wiphone-firmware/issues/24
+    * Dial "*" for phonenumbers: https://github.com/ESP32-WiPhone/wiphone-firmware/issues/20
+    * Press and hold keys: https://github.com/ESP32-WiPhone/wiphone-firmware/issues/25
+    * ESP RTC: https://github.com/ESP32-WiPhone/wiphone-firmware/issues/26
+    * Custom NTP: https://github.com/ESP32-WiPhone/wiphone-firmware/issues/27
+    * Right arrow for submenu: https://github.com/ESP32-WiPhone/wiphone-firmware/issues/29
+    * Caret in dial app: https://github.com/ESP32-WiPhone/wiphone-firmware/issues/30
 
 useless commands
 ================

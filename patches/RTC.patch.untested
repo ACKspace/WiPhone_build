@@ -1,0 +1,14 @@
+diff --git a/config.h b/config.h
+index 742f45a..d9c7b66 100644
+--- a/config.h
++++ b/config.h
+@@ -87,5 +87,9 @@ governing permissions and limitations under the License.
+ #define DEFAULT_TIME_OFFSET         (0 * ONE_HOUR_IN_SECONDS)    // UTC+0
+ 
+ //#define UDP_SIP
++#undef CONFIG_ESP32_RTC_CLOCK_SOURCE_INTERNAL_RC
++#undef CONFIG_ESP32_RTC_CLOCK_SOURCE_EXTERNAL_CRYSTAL
++#undef CONFIG_ESP32_RTC_CLOCK_SOURCE_EXTERNAL_OSC
++#define CONFIG_ESP32_RTC_CLOCK_SOURCE_INTERNAL_8MD256 1
+ 
+ #endif // __CONFIG_H

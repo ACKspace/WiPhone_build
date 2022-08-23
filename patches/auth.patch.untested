@@ -1,0 +1,179 @@
+diff --git a/GUI.cpp b/GUI.cpp
+index 6af2312..b53fa04 100644
+--- a/GUI.cpp
++++ b/GUI.cpp
+@@ -127,9 +127,10 @@ bool GUI::addWidget(GUIWidget* w) {
+ 
+ void GUI::loadSettings() {
+   state.loadSipAccount();
+-  log_d("fromName  = %s", state.fromNameDyn);
+-  log_d("fromUri   = %s", state.fromUriDyn);
+-  log_d("proxyPass = %s", state.proxyPassDyn);
++  log_d("fromName     = %s", state.fromNameDyn);
++  log_d("fromUri      = %s", state.fromUriDyn);
++  log_d("fromAuthName = %s", state.fromAuthName);
++  log_d("proxyPass    = %s", state.proxyPassDyn);
+ }
+ 
+ /*
+@@ -281,6 +282,7 @@ ControlState::ControlState(void)
+   // SIP account
+   fromNameDyn  = NULL;
+   fromUriDyn   = NULL;//strdup("0@00");//NULL;     // SIP URI
++  fromAuthName = NULL;
+   proxyPassDyn = NULL;
+ 
+   // Callee
+@@ -310,6 +312,7 @@ void ControlState::clearDynamicSip() {
+   freeNull((void **) &fromNameDyn);
+   freeNull((void **) &fromUriDyn);
+   fromUriDyn = NULL;//strdup("0@00");//NULL;     // SIP URI
++  freeNull((void **) &fromAuthName);
+   freeNull((void **) &proxyPassDyn);
+   freeNull((void **) &lastReasonDyn);
+ }
+@@ -373,14 +376,15 @@ void ControlState::setInputState(InputType newInputType) {
+ /* Description:
+  *    set SIP account settings from function parameters
+  */
+-void ControlState::setSipAccount(const char* dispName, const char* uri, const char* passwd, const char* UDP_TCP_SIP_Selection) {
++void ControlState::setSipAccount(const char* dispName, const char* uri, const char* authName, const char* passwd, const char* UDP_TCP_SIP_Selection) {
+   clearDynamicSip();
+ 
+ //TODO UDP_SIP set global UDP TCP SIP value on reading ini file.
+ 
+   // Don't do anything if new credentials (namely SIP URI and password) are the same as existing ones
+   bool sipAccountSame = (uri && fromUriDyn && !strcmp(uri, fromUriDyn)) && //Mesut: this should be AND operand
+-                        (passwd && proxyPassDyn && !strcmp(passwd, proxyPassDyn) &&
++                        (authName && proxyAuthName && !strcmp(authName, proxyAuthName) &&
++                         passwd && proxyPassDyn && !strcmp(passwd, proxyPassDyn) &&
+                          (UDP_TCP_SIP_Selection && global_UDP_TCP_SIP && !strcmp(UDP_TCP_SIP_Selection, global_UDP_TCP_SIP)));      // a strong condition
+   sipAccountChanged = !sipAccountSame;
+ 
+@@ -392,6 +396,7 @@ void ControlState::setSipAccount(const char* dispName, const char* uri, const ch
+   if (sipAccountChanged) {
+     fromNameDyn  = (dispName!=NULL) ? strdup(dispName) : strdup("");
+     fromUriDyn   = (uri!=NULL) ? strdup(uri) : /*strdup("0@00")*/NULL;//to do put test value here
++    fromAuthName = (passwd!=NULL) ? strdup(authName) : strdup("");
+     proxyPassDyn = (passwd!=NULL) ? strdup(passwd) : strdup("");
+     global_UDP_TCP_SIP = (UDP_TCP_SIP_Selection!=NULL) ? strdup(UDP_TCP_SIP_Selection) : strdup("");
+     if(!strcmp(global_UDP_TCP_SIP, "UDP-SIP")) {
+@@ -409,11 +414,12 @@ void ControlState::setSipAccount(const char* dispName, const char* uri, const ch
+ }
+ 
+ void ControlState::removeSipAccount() {
+-  sipAccountChanged =  fromNameDyn &&  fromUriDyn &&  proxyPassDyn &&
+-                       *fromNameDyn && *fromUriDyn && *proxyPassDyn;
++  sipAccountChanged =  fromNameDyn &&  fromUriDyn && fromAuthName && proxyPassDyn &&
++                       *fromNameDyn && *fromUriDyn && *fromAuthName && *proxyPassDyn;
+ 
+   freeNull((void **) &fromNameDyn);
+   freeNull((void **) &fromUriDyn);
++  freeNull((void **) &proxyAuthName);
+   freeNull((void **) &proxyPassDyn);
+ }
+ 
+diff --git a/GUI.h b/GUI.h
+index 39ec582..81145cd 100644
+--- a/GUI.h
++++ b/GUI.h
+@@ -221,6 +221,7 @@ public:
+ 
+   char* fromNameDyn;                // display name
+   char* fromUriDyn;                 // SIP URI
++  char* fromAuthName;               // SIP authentication username 
+   char* proxyPassDyn;               // proxy password
+   char* global_UDP_TCP_SIP;         //UDP-SIP or TCP-SIP selected
+ 
+diff --git a/WiPhone.ino b/WiPhone.ino
+index 22db01d..ebd4a62 100644
+--- a/WiPhone.ino
++++ b/WiPhone.ino
+@@ -1451,6 +1451,7 @@ void loop() {
+         wifiState.getMac(mac);
+         if (sip.init( gui.state.fromNameDyn,
+                       gui.state.fromUriDyn,
++                      gui.state.fromAuthName,
+                       gui.state.proxyPassDyn,
+                       mac )) {
+           sip.triedToMakeCallCounter = 0;
+diff --git a/tinySIP.cpp b/tinySIP.cpp
+index 20e1d04..7699898 100644
+--- a/tinySIP.cpp
++++ b/tinySIP.cpp
+@@ -452,6 +452,7 @@ TinySIP::TinySIP()
+   localUserDyn = NULL;
+   localNameDyn = NULL;
+   localUriDyn = NULL;
++  localAuthName = NULL;
+   proxyPasswDyn = NULL;
+   remoteAudioAddrDyn = NULL;
+   remoteAudioPort = 0;
+@@ -491,7 +492,7 @@ TinySIP::TinySIP()
+  * return:
+  *      whether connection was successfull
+  */
+-bool TinySIP::init(const char* name, const char* fromUri, const char* proxyPass, const uint8_t* mac) {
++bool TinySIP::init(const char* name, const char* fromUri, const char* fromAuthName, const char* proxyPass, const uint8_t* mac) {
+   log_v("TinySIP::init");
+ 
+   // re-init logic
+@@ -508,6 +509,7 @@ bool TinySIP::init(const char* name, const char* fromUri, const char* proxyPass,
+   localUserDyn = strdup(addrParsed.userinfo());
+   localNameDyn = strdup(name);
+   localUriDyn = strdup(fromUri);
++  localAuthName = strdup(fromAuthName);
+   proxyPasswDyn = strdup(proxyPass);
+ 
+   // MAC address
+@@ -816,6 +818,7 @@ void TinySIP::clearDynamicState() {
+   freeNull((void **) &localUserDyn);
+   freeNull((void **) &localNameDyn);
+   freeNull((void **) &localUriDyn);
++  freeNull((void **) &localAuthName);  
+   freeNull((void **) &proxyPasswDyn);
+   freeNull((void **) &callIdDyn);
+   freeNull((void **) &msgCallIdDyn);
+@@ -1921,8 +1924,9 @@ TinySIP::StateFlags_t TinySIP::checkCall(uint32_t msNow) {
+           if (tmpRespSeq != respCSeq) {
+             char empty[] = "";
+             char* alg = (digestAlgorithm!=NULL) ? digestAlgorithm : empty;
+-            char* user = (localUserDyn!=NULL) ? localUserDyn : (char*) "anonymous";
++            char* user = (localAuthName!=NULL) ? localAuthName : (localUserDyn!=NULL) ? localUserDyn : (char*) "anonymous";
+             char* realm = (digestRealm!=NULL) ? digestRealm : empty;
++            char* auth = (localAuthName!=NULL) ? localAuthName : empty;
+             char* pass = (proxyPasswDyn!=NULL) ? proxyPasswDyn : empty;
+             char* nonce = (digestNonce!=NULL) ? digestNonce : empty;
+             char* qop = (digestQopPref!=NULL) ? digestQopPref : empty;
+@@ -3701,7 +3705,9 @@ void TinySIP::sendHeaderAuthorization(Connection& tcp, const char* URI) {
+ 
+     // username
+     TCP(tcp, " username=\"");
+-    if (localUserDyn!=NULL && *localUserDyn) {
++    if (localAuthName!=NULL && *localAuthName) {
++      TCP(tcp, localAuthName);
++    } else if     if (localUserDyn!=NULL && *localUserDyn) {
+       TCP(tcp, localUserDyn);
+     } else {
+       TCP(tcp, "anonymous");  // TODO: how does this work?
+diff --git a/tinySIP.h b/tinySIP.h
+index b3d44d0..e25c773 100644
+--- a/tinySIP.h
++++ b/tinySIP.h
+@@ -582,7 +582,7 @@ public:
+   static const uint32_t T1_MS = 500u;                   // 500 ms; RFC 3261, Section 17: "The default value for T1 is 500 ms"
+ 
+   TinySIP();
+-  bool init(const char* name, const char* fromUri, const char* proxyPass, const uint8_t *mac);
++  bool init(const char* name, const char* fromUri, const char* fromAuthName, const char* proxyPass, const uint8_t *mac);
+   void clearRouteSet();
+   void clearDynamicState();
+   void clearDynamicParsed();
+@@ -758,6 +758,7 @@ protected:
+   char* localUserDyn;
+   char* localNameDyn;       // display name
+   char* localUriDyn;
++  char* localAuthName;
+   char* proxyPasswDyn;
+   char* remoteUriDyn;       // set when making (startCall) or accepting (sending 180 response) a call
+   char* outgoingMsgDyn;

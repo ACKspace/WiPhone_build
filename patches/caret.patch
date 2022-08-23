@@ -1,0 +1,48 @@
+diff --git a/GUI.cpp b/GUI.cpp
+index 6af2312..c4528fb 100644
+--- a/GUI.cpp
++++ b/GUI.cpp
+@@ -11066,7 +11066,7 @@ void MultilineTextWidget::redraw(LCD &lcd, uint16_t screenOffX, uint16_t screenO
+           curPosX = lcd.textWidth(rowsDyn[i]);
+         }
+       }
+-      drawCursor(lcd, screenOffX + xPadding + curPosX, screenOffY + yOff, widgetFont->height(), WP_COLOR_0);
++      drawCursor(lcd, screenOffX + xPadding + curPosX, screenOffY + yOff, widgetFont->height(), fgColor);
+     }
+ 
+     yOff += widgetFont->height();
+@@ -11236,14 +11236,14 @@ void TextInputWidget::redraw(LCD &lcd, uint16_t screenOffX, uint16_t screenOffY,
+         if (cursorOffset - textOffset <=  fit) {
+           dup[cursorOffset - textOffset] = '\0';
+           curPosX = lcd.textWidth(dup);
+-          drawCursor(lcd, screenOffX + curPosX + xPad, screenOffY + (windowHeight-widgetFont->height())/2, widgetFont->height(), WP_COLOR_0);
++          drawCursor(lcd, screenOffX + curPosX + xPad, screenOffY + (windowHeight-widgetFont->height())/2, widgetFont->height(), fgColor);
+         }
+       }
+       free(dup);
+     }
+   } else {
+     if (focused) {
+-      drawCursor(lcd, screenOffX+xPad+1, screenOffY+(windowHeight-widgetFont->height())/2, widgetFont->height(), WP_COLOR_0);
++      drawCursor(lcd, screenOffX+xPad+1, screenOffY+(windowHeight-widgetFont->height())/2, widgetFont->height(), fgColor);
+     }
+   }
+ }
+@@ -11454,7 +11454,7 @@ void PasswordInputWidget::redraw(LCD &lcd, uint16_t screenOffX, uint16_t screenO
+         if (cursorOffset - textOffset <=  fit) {
+           dup[cursorOffset - textOffset] = '\0';
+           curPosX = lcd.textWidth(dup);
+-          drawCursor(lcd, screenOffX + curPosX + xPad, screenOffY+(windowHeight-widgetFont->height())/2, widgetFont->height(), WP_COLOR_0);
++          drawCursor(lcd, screenOffX + curPosX + xPad, screenOffY+(windowHeight-widgetFont->height())/2, widgetFont->height(), fgColor);
+         }
+       }
+       free(dup);
+@@ -11462,7 +11462,7 @@ void PasswordInputWidget::redraw(LCD &lcd, uint16_t screenOffX, uint16_t screenO
+   } else {
+     // Empty input -> draw only cursor if necessary
+     if (focused) {
+-      drawCursor(lcd, screenOffX+xPad+1, screenOffY+(windowHeight-widgetFont->height())/2, widgetFont->height(), WP_COLOR_0);
++      drawCursor(lcd, screenOffX+xPad+1, screenOffY+(windowHeight-widgetFont->height())/2, widgetFont->height(), fgColor);
+     }
+   }
+ }

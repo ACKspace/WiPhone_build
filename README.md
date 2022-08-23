@@ -73,6 +73,12 @@ To start a clean branch where one can write patches:
     * Generate patches: `git diff HEAD -- [file] > ../patches/my_work.patch`
     * optionally reset the project with `git reset --hard` for the next topic
 
+reapply single patch
+--------------------
+To reapply your current patch, use the following:
+* Navigate inside the `Wiphone/` directory
+  * `patch --forward -r - -p1 < ../patches/my_work.patch`
+
 list of patches
 ===============
 
@@ -83,6 +89,7 @@ The following patches are currently created (on file)
 * EU LoRa frequency: `Hardware.h` (See https://github.com/ESP32-WiPhone/wiphone-firmware/issues/24)
 * lock screen ignore keys: `GUI.cpp`(See https://github.com/ESP32-WiPhone/wiphone-firmware/issues/28)
 * Loud speaker: `GUI.cpp` (See https://github.com/ESP32-WiPhone/wiphone-firmware/issues/3)
+* Caret in dial app (See https://github.com/ESP32-WiPhone/wiphone-firmware/issues/30)
 * TODO (look into possibilities):
     * Full LoRa menu: https://github.com/ESP32-WiPhone/wiphone-firmware/issues/24
     * Dial "*" for phonenumbers: https://github.com/ESP32-WiPhone/wiphone-firmware/issues/20
@@ -90,7 +97,27 @@ The following patches are currently created (on file)
     * ESP RTC: https://github.com/ESP32-WiPhone/wiphone-firmware/issues/26
     * Custom NTP: https://github.com/ESP32-WiPhone/wiphone-firmware/issues/27
     * Right arrow for submenu: https://github.com/ESP32-WiPhone/wiphone-firmware/issues/29
-    * Caret in dial app: https://github.com/ESP32-WiPhone/wiphone-firmware/issues/30
+
+considerations
+==============
+You might consider to create a patch for adding a sip account in `data/sip_accounts.ini`:
+```
+[]
+m=1
+d=<nick>
+s=sip:<nick>@ackspace.nl
+p=<pass>
+```
+as well as a phonebook list:
+```
+[]
+n=<friend>
+s=sip:<friend>@ackspace.nl
+l=<lora friend mac>
+[]
+n=broadcast
+l=000000
+```
 
 useless commands
 ================

@@ -4,7 +4,7 @@
 ARDUINO_BIN=~/bin/arduino-1.8.16
 ARDUINO_PACKAGES=~/.arduino15/packages
 ARDUINO_LIBRARIES=~/Arduino/libraries
-VERSION_SUFFIX=x01
+VERSION_SUFFIX=rc01x
 UPLOAD_PATH=ackspace:/var/www/ackspace.nl/WiPhone/
 
 BUILD_PATH=`dirname $0`

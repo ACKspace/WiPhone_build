@@ -2,7 +2,7 @@
 build
 =====
 
-*Either* edit the defaults at the top of `build.sh`: to make sure the used directories are correct (and set a version suffix: x for xopr ;)
+*Either* edit the defaults at the top of `build.sh`: to make sure the used directories are correct (and set a `rc` version suffix, followed by a number and end with a character: x for xopr ;)
 ```
 # Defaults
 VERSION_SUFFIX=<suffix>

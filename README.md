@@ -2,72 +2,38 @@
 build
 =====
 
-*Either* edit the defaults at the top of `build.sh`: to make sure the used directories are correct (and set a `rc` version suffix, followed by a number and end with a character: x for xopr ;)
+You can use the following optional parameters.
+When no arguments are provided, `--all` (with all its defaults) is assumed
 ```
-# Defaults
-VERSION_SUFFIX=<suffix>
-ARDUINO_BIN=<dir>
-ARDUINO_PACKAGES=<dir>
-ARDUINO_LIBRARIES=<dir>
-UPLOAD_PATH=<scp path>
+    -a, --all                       enable all steps: backup, compile, debug, extract, ota, patch, restore, suffix, upload
+    -b, --backup                    backup current source directory
+    -c, --compile                   compile
+    -d, --debug       <0 to 5>      set ESP core debug level, default 0, part of compile
+    -e, --extract                   extract latest source zip 
+    -h, --help                      show this help message and exit
+    -j, --bin         <dir>         set arduino bin, default ~/bin/arduino-1.8.16
+    -k, --packages    <dir>         set arduino packages, default ~/.arduino15/packages
+    -l, --libraries   <dir>         set arduino libraries, default ~/Arduino/libraries
+    -o, --ota                       generate OTA
+    -p, --patch                     apply patches from the patches folder
+    -r, --restore                   restore original source code
+    -s, --suffix      <suffix>      set version suffix, default rc01x
+    -u, --upload      <path>        scp upload path, default ackspace:/var/www/ackspace.nl/WiPhone/
+    -v, --verbose                   be verbose on script output
 ```
-
-*or* use the following parameters:
-```
-     -s, --suffix <suffix>    add version suffix
-     -b, --bin <dir>          arduino bin directory
-     -p, --packages <dir>     arduino packages directory
-     -l, --libraries <dir>    arduino packages directory
-     -u, --upload <path>      upload to remote path
-```
+Short parameter values are separated by space, i.e. `-s rc02a`; long parameters with `=`, i.e. `--suffix=rc02a`.
 
 Place the WiPhone-*.zip file in the root of this directory and run `./build.sh` (optionally with parameters listed above)
 
-other parameters
-----------------
-
-The following parameters are also available (to steps or be more verbose):
-```
-   other options:
-     -h, --help               show this help message and exit
-     -v, --verbose            increase the verbosity of the bash script
-
-   negating options:
-     -a, --noarchive          don't create a backup of the current folder
-     -z, --nounzip            don't unzip source (implicit backup copy)
-     -o, --nopatch            don't apply any patches
-     -x, --nosuffix           don't add auto version suffix (default: $VERSION_SUFFIX)
-     -c, --nocompile          don't compile
-     -r, --norestore          don't revert applies patches in repo
-     -f, --nofiles            don't generate OTA files
-     -n, --noupload           don't upload to server
-```
-The lower set of options is to disable a step in the build (and upload) process.
-By default, the build script runs the following (tag included, disable with `-no` or use the sorthand param):
-* backup: (archive, ~a: move if unzip, ~z, else copy)
-* unzip latest version (unzip, ~z)
-* stashing local work (restore, ~r)
-* applying patches(patch, ~o)
-* set version suffix (suffix, ~x)
-* compile project.. (compile, ~c)
-* copy partition information (compile, ~c)
-* copy default partitions (compile, ~c)
-* compile ctags (compile, ~c)
-* build ctags (compile, ~c)
-* compile project (compile, ~c)
-* create elf (compile, ~c)
-* extract bin (compile, ~c)
-* partition bin (compile, ~c)
-* restore current work (restore, ~r)
-* create OTA file (files, ~f)
-* upload (upload, ~n)
+For the version suffix, please keep the following format in mind: `rc<digits><trailing character>`
+Where `<digits>` typically will be between 00 and 99, and `<character>` is something typically to identify the (contact) person delivering the build: `x` for xopr.
 
 generate patch
 ==============
 
 To start a clean branch where one can write patches:
-* `./build.sh -x -o -c -r -f -n -v`
-    * no suffix, patch, compile, restore, OTA or upload
+* `./build.sh -be`
+    * backup and extract zip.
 * Navigate inside the `Wiphone/` directory
     * Do some coding
     * Generate patches: `git diff HEAD -- [file] > ../patches/my_work.patch`
@@ -122,5 +88,5 @@ l=000000
 useless commands
 ================
 
-To do absolutely nothing, run:
-`./compile.sh -a -z -o -x -c -r -f -n -v`
+To do absolutely nothing (display variables), run:
+`./compile.sh -v`

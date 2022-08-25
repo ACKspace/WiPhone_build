@@ -1,138 +1,140 @@
 #!/usr/bin/env bash
 
-# Defaults
+# No params or --all provided?
+VERBOSE=0
+CORE_DEBUG=0 # 0=None, Error, Warning, Info, Debug, 5=Verbose
 ARDUINO_BIN=~/bin/arduino-1.8.16
 ARDUINO_PACKAGES=~/.arduino15/packages
 ARDUINO_LIBRARIES=~/Arduino/libraries
-VERSION_SUFFIX=rc01x
-UPLOAD_PATH=ackspace:/var/www/ackspace.nl/WiPhone/
+
+if [[ $@ =~ (^| )(-a|--all)( |$) || $# -eq 0 ]]; then
+    # Apply defaults
+    VERSION_SUFFIX=rc01x
+
+    UNZIP=1
+    PATCH=1
+    COMPILE=1
+    RESTORE=1
+    FILES=1
+    BACKUP=1
+    UPLOAD_PATH=ackspace:/var/www/ackspace.nl/WiPhone/
+else
+    UNZIP=0
+    PATCH=0
+    COMPILE=0
+    RESTORE=0
+    FILES=0
+    BACKUP=0
+fi
 
 BUILD_PATH=`dirname $0`
 WIPHONE_PATH=$BUILD_PATH/WiPhone
 
 function usage()
 {
-   cat << HEREDOC
+    echo $@
+    cat << HEREDOC
 
-   Usage: $0 [--num NUM] [--time TIME_STR] [--verbose] [--dry-run]
+   Usage: $0 [arguments]
+   When no arguments are provided, --all (with defaults) will be applied.
+   Short argument values are separated with sapce, long with '='
+   When applying a single parameter but still want to apply defaults, add --all
 
    optional arguments:
-     -h, --help               show this help message and exit
-     -s, --suffix <suffix>    add version suffix
-     -b, --bin <dir>          arduino bin directory
-     -p, --packages <dir>     arduino packages directory
-     -l, --libraries <dir>    arduino packages directory
-     -u, --upload <path>      upload to remote path
-     -v, --verbose            increase the verbosity of the bash script
-
-   negating options:
-     -a, --noarchive          don't create a backup of the current folder
-     -z, --nounzip            don't unzip source (implicit backup copy)
-     -o, --nopatch            don't apply any patches
-     -x, --nosuffix           don't add auto version suffix (default: $VERSION_SUFFIX)
-     -c, --nocompile          don't compile
-     -r, --norestore          don't revert applies patches in repo
-     -f, --nofiles            don't generate OTA files
-     -n, --noupload           don't upload to server
-
+    -a, --all                       enable all steps
+    -b, --backup                    backup current source directory
+    -c, --compile                   compile
+    -d, --debug       <0 to 5>      set ESP core debug level, default $CORE_DEBUG
+    -e, --extract                   extract latest source zip 
+    -h, --help                      show this help message and exit
+    -j, --bin         <dir>         set arduino bin, default $ARDUINO_BIN
+    -k, --packages    <dir>         set arduino packages, default $ARDUINO_PACKAGES
+    -l, --libraries   <dir>         set arduino libraries, default $ARDUINO_LIBRARIES
+    -o, --ota                       generate OTA
+    -p, --patch                     apply patches from the patches folder
+    -r, --restore                   restore original source code
+    -s, --suffix      <suffix>      set version suffix, default $VERSION_SUFFIX
+    -u, --upload      <path>        scp upload path, default $UPLOAD_PATH
+    -v, --verbose                   be verbose on script output
 HEREDOC
+    exit 1
 }
 
-# Defaults
-UNZIP=1
-PATCH=1
-COMPILE=1
-RESTORE=1
-FILES=1
-ARCHIVE=1
-VERBOSE=0
-POSITIONAL_ARGS=()
+# From https://stackoverflow.com/questions/402377/using-getopts-to-process-long-and-short-command-line-options
+while getopts ':abcd:ehj:k:l:oprs:u:v-' OPTION ; do
+  case "$OPTION" in
+    -  ) [ $OPTIND -ge 1 ] && optind=$(expr $OPTIND - 1 ) || optind=$OPTIND
+         eval OPTION="\$$optind"
+         OPTARG=$(echo $OPTION | cut -d'=' -f2)
+         OPTION=$(echo $OPTION | cut -d'=' -f1)
 
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        -z|--nounzip)
-            UNZIP=0
-            shift # argument
-            ;;
-        -a|--noarchive)
-            ARCHIVE=0
-            shift # argument
-            ;;
-        -o|--nopatch)
-            PATCH=0
-            shift # argument
-            ;;
-        -x|--nosuffix)
-            VERSION_SUFFIX=
-            shift # argument
-            ;;
-        -s|--suffix)
-            VERSION_SUFFIX="$2"
-            shift # argument
-            shift # value
-            ;;
-        -c|--nocompile)
-            COMPILE=0
-            shift # argument
-            ;;
-        -r|--norestore)
-            RESTORE=0
-            shift # argument
-            ;;
-        -f|--nofiles)
-            FILES=0
-            shift # argument
-            ;;
-        -u|--upload)
-            UPLOAD_PATH="$2"
-            shift # argument
-            shift # value
-            ;;
-        -n|--noupload)
-            UPLOAD_PATH=
-            shift # argument
-            ;;
-        -b|--bin)
-            ARDUINO_BIN="$2"
-            shift # argument
-            shift # value
-            ;;
-        -p|--packages)
-            ARDUINO_PACKAGES="$2"
-            shift # argument
-            shift # value
-            ;;
-        -l|--libraries)
-            ARDUINO_LIBRARIES="$2"
-            shift # argument
-            shift # value
-            ;;
-        -v|--verbose)
-            VERBOSE=1
-            shift # argument
-            ;;
-        -h|--help)
-            usage
-            exit 1
-            ;;
-        -*|--*)
-            echo "Unknown option $1, try: $0 -h"
-            exit 1
-            ;;
-        *)
-            POSITIONAL_ARGS+=("$1") # save positional arg
-            shift # past argument
-            ;;
-    esac
+         # Note: if $OPTION === $OPTARG, no arguments were provided
+         case $OPTION in
+            --all        ) ;;
+            --backup     ) BACKUP=1 ;;
+            --compile    ) COMPILE=1 ;;
+            --debug      )
+                            [ $OPTARG -ge 0 -a $OPTARG -le 5 ] \
+                            && CORE_DEBUG=$OPTARG \
+                            || usage debug needs to be between 0 and 5
+                        ;;
+            --extract    ) UNZIP=1 ;;
+            --help       ) usage ;;
+            --bin        ) ARDUINO_BIN="$OPTARG" ;;
+            --packages   ) ARDUINO_PACKAGES="$OPTARG" ;;
+            --libraries  ) ARDUINO_LIBRARIES="$OPTARG" ;;
+            --ota        ) FILES=1 ;;
+            --patch      ) PATCH=1 ;;
+            --restore    ) RESTORE=1 ;;
+            --suffix     ) VERSION_SUFFIX="$OPTARG" ;;
+            --upload     ) UPLOAD_PATH="$OPTARG" ;;
+            --verbose    ) VERBOSE=1 ;;
+#           *            ) echo this triggers if parameters are not ordered on length 
+         esac
+       OPTIND=1
+       shift
+      ;;
+    a  ) ;;
+    b  ) BACKUP=1 ;;
+    c  ) COMPILE=1 ;;
+    d  )
+        [ $OPTARG -ge 0 -a $OPTARG -le 5 ] \
+            && CORE_DEBUG=$OPTARG \
+            || usage debug needs to be between 0 and 5
+        ;;
+    e  ) UNZIP=1 ;;
+    h  ) usage ;;
+    j  ) ARDUINO_BIN="$OPTARG" ;;
+    k  ) ARDUINO_PACKAGES="$OPTARG" ;;
+    l  ) ARDUINO_LIBRARIES="$OPTARG" ;;
+    o  ) FILES=1 ;;
+    p  ) PATCH=1 ;;
+    r  ) RESTORE=1 ;;
+    s  ) VERSION_SUFFIX="$OPTARG" ;;
+    u  ) UPLOAD_PATH="$OPTARG" ;;
+    v  ) VERBOSE=1 ;;
+    ?  ) usage unknown parameter ;;
+  esac
 done
 
-# restore positional parameters
-set -- "${POSITIONAL_ARGS[@]}"
-
-if [ $VERBOSE -eq 1 ]; then echo "Verbose mode"; fi
+if [ $VERBOSE -eq 1 ]; then
+echo "Verbose mode:"
+echo "  backup: $BACKUP"
+echo "  compile: $COMPILE"
+echo "  debug: $CORE_DEBUG"
+echo "  extract: $UNZIP"
+echo "  bin: $ARDUINO_BIN"
+echo "  packages: $ARDUINO_PACKAGES"
+echo "  libraries: $ARDUINO_LIBRARIES"
+echo "  ota: $FILES"
+echo "  patch: $PATCH"
+echo "  restore: $RESTORE"
+echo "  suffix: $VERSION_SUFFIX"
+echo "  upload: $UPLOAD_PATH"
+fi
 
 # Backup
-if [[ -d $WIPHONE_PATH && $ARCHIVE -eq 1 ]]; then
+if [[ -d $WIPHONE_PATH && $BACKUP -eq 1 ]]; then
     echo -n "* backup: "
 
     # TODO: nounzip -> cp -R
@@ -229,7 +231,7 @@ if [ $COMPILE -eq 1 ]; then
     bash -c "[ -f $BUILD/partitions.csv ] || cp $ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/partitions/default_16MB.csv $BUILD/partitions.csv"
 
     echo "* compile ctags"
-    $ARDUINO_PACKAGES/WiPhone/tools/xtensa-esp32-elf-gcc/1.22.0-80-g6c4433a-5.2.0/bin/xtensa-esp32-elf-g++ -DESP_PLATFORM "-DMBEDTLS_CONFIG_FILE=\"mbedtls/esp_config.h\"" -DHAVE_CONFIG_H -DGCC_NOT_5_2_0=0 -DWITH_POSIX -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/config -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/app_trace -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/app_update -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/asio -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/bootloader_support -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/bt -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/coap -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/console -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/driver -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/efuse -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp-tls -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp32 -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_adc_cal -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_event -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_http_client -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_http_server -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_https_ota -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_https_server -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_ringbuf -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_websocket_client -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/espcoredump -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/ethernet -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/expat -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/fatfs -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/freemodbus -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/freertos -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/heap -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/idf_test -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/jsmn -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/json -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/libsodium -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/log -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/lwip -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/mbedtls -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/mdns -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/micro-ecc -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/mqtt -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/newlib -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/nghttp -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/nimble -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/nvs_flash -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/openssl -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/protobuf-c -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/protocomm -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/pthread -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/sdmmc -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/smartconfig_ack -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/soc -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/spi_flash -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/spiffs -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/tcp_transport -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/tcpip_adapter -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/ulp -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/unity -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/vfs -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/wear_levelling -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/wifi_provisioning -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/wpa_supplicant -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/xtensa-debug-module -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp-face -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp32-camera -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp-face -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/fb_gfx -std=gnu++11 -Os -g3 -Wpointer-arith -fexceptions -fstack-protector -ffunction-sections -fdata-sections -fstrict-volatile-bitfields -mlongcalls -nostdlib -w -Wno-error=maybe-uninitialized -Wno-error=unused-function -Wno-error=unused-but-set-variable -Wno-error=unused-variable -Wno-error=deprecated-declarations -Wno-unused-parameter -Wno-unused-but-set-parameter -Wno-missing-field-initializers -Wno-sign-compare -fno-rtti -c -w -x c++ -E -CC -DF_CPU=240000000L -DARDUINO=10816 -DARDUINO_WiPhone -DARDUINO_ARCH_ESP32 "-DARDUINO_BOARD=\"WiPhone\"" "-DARDUINO_VARIANT=\"wiphone\"" -DESP32 -DCORE_DEBUG_LEVEL=0 -DBOARD_HAS_PSRAM -mfix-esp32-psram-cache-issue -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/cores/esp32 -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/variants/wiphone -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/ESP32/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/HTTPClient/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/WiFi/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/WiFiClientSecure/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/HTTPUpdate/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/Update/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/SPI/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/FS/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/SPIFFS/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/Preferences/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/SD/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/ESPmDNS/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/Wire/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/RadioHead $BUILD/sketch/WiPhone.ino.cpp -o $BUILD/preproc/ctags_target_for_gcc_minus_e.cpp
+    $ARDUINO_PACKAGES/WiPhone/tools/xtensa-esp32-elf-gcc/1.22.0-80-g6c4433a-5.2.0/bin/xtensa-esp32-elf-g++ -DESP_PLATFORM "-DMBEDTLS_CONFIG_FILE=\"mbedtls/esp_config.h\"" -DHAVE_CONFIG_H -DGCC_NOT_5_2_0=0 -DWITH_POSIX -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/config -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/app_trace -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/app_update -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/asio -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/bootloader_support -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/bt -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/coap -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/console -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/driver -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/efuse -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp-tls -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp32 -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_adc_cal -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_event -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_http_client -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_http_server -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_https_ota -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_https_server -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_ringbuf -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_websocket_client -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/espcoredump -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/ethernet -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/expat -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/fatfs -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/freemodbus -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/freertos -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/heap -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/idf_test -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/jsmn -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/json -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/libsodium -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/log -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/lwip -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/mbedtls -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/mdns -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/micro-ecc -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/mqtt -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/newlib -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/nghttp -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/nimble -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/nvs_flash -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/openssl -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/protobuf-c -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/protocomm -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/pthread -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/sdmmc -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/smartconfig_ack -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/soc -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/spi_flash -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/spiffs -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/tcp_transport -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/tcpip_adapter -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/ulp -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/unity -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/vfs -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/wear_levelling -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/wifi_provisioning -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/wpa_supplicant -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/xtensa-debug-module -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp-face -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp32-camera -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp-face -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/fb_gfx -std=gnu++11 -Os -g3 -Wpointer-arith -fexceptions -fstack-protector -ffunction-sections -fdata-sections -fstrict-volatile-bitfields -mlongcalls -nostdlib -w -Wno-error=maybe-uninitialized -Wno-error=unused-function -Wno-error=unused-but-set-variable -Wno-error=unused-variable -Wno-error=deprecated-declarations -Wno-unused-parameter -Wno-unused-but-set-parameter -Wno-missing-field-initializers -Wno-sign-compare -fno-rtti -c -w -x c++ -E -CC -DF_CPU=240000000L -DARDUINO=10816 -DARDUINO_WiPhone -DARDUINO_ARCH_ESP32 "-DARDUINO_BOARD=\"WiPhone\"" "-DARDUINO_VARIANT=\"wiphone\"" -DESP32 -DCORE_DEBUG_LEVEL=$CORE_DEBUG -DBOARD_HAS_PSRAM -mfix-esp32-psram-cache-issue -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/cores/esp32 -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/variants/wiphone -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/ESP32/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/HTTPClient/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/WiFi/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/WiFiClientSecure/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/HTTPUpdate/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/Update/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/SPI/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/FS/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/SPIFFS/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/Preferences/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/SD/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/ESPmDNS/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/Wire/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/RadioHead $BUILD/sketch/WiPhone.ino.cpp -o $BUILD/preproc/ctags_target_for_gcc_minus_e.cpp
     #echo =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
     echo "* build ctags"
@@ -241,7 +243,7 @@ if [ $COMPILE -eq 1 ]; then
     fi
 
     echo "* compile project"
-    $ARDUINO_PACKAGES/WiPhone/tools/xtensa-esp32-elf-gcc/1.22.0-80-g6c4433a-5.2.0/bin/xtensa-esp32-elf-g++ -DESP_PLATFORM "-DMBEDTLS_CONFIG_FILE=\"mbedtls/esp_config.h\"" -DHAVE_CONFIG_H -DGCC_NOT_5_2_0=0 -DWITH_POSIX -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/config -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/app_trace -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/app_update -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/asio -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/bootloader_support -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/bt -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/coap -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/console -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/driver -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/efuse -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp-tls -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp32 -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_adc_cal -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_event -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_http_client -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_http_server -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_https_ota -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_https_server -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_ringbuf -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_websocket_client -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/espcoredump -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/ethernet -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/expat -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/fatfs -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/freemodbus -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/freertos -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/heap -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/idf_test -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/jsmn -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/json -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/libsodium -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/log -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/lwip -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/mbedtls -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/mdns -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/micro-ecc -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/mqtt -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/newlib -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/nghttp -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/nimble -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/nvs_flash -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/openssl -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/protobuf-c -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/protocomm -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/pthread -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/sdmmc -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/smartconfig_ack -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/soc -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/spi_flash -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/spiffs -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/tcp_transport -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/tcpip_adapter -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/ulp -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/unity -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/vfs -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/wear_levelling -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/wifi_provisioning -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/wpa_supplicant -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/xtensa-debug-module -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp-face -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp32-camera -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp-face -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/fb_gfx -std=gnu++11 -Os -g3 -Wpointer-arith -fexceptions -fstack-protector -ffunction-sections -fdata-sections -fstrict-volatile-bitfields -mlongcalls -nostdlib -w -Wno-error=maybe-uninitialized -Wno-error=unused-function -Wno-error=unused-but-set-variable -Wno-error=unused-variable -Wno-error=deprecated-declarations -Wno-unused-parameter -Wno-unused-but-set-parameter -Wno-missing-field-initializers -Wno-sign-compare -fno-rtti -MMD -c -DF_CPU=240000000L -DARDUINO=10816 -DARDUINO_WiPhone -DARDUINO_ARCH_ESP32 "-DARDUINO_BOARD=\"WiPhone\"" "-DARDUINO_VARIANT=\"wiphone\"" -DESP32 -DCORE_DEBUG_LEVEL=0 -DBOARD_HAS_PSRAM -mfix-esp32-psram-cache-issue -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/cores/esp32 -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/variants/wiphone -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/ESP32/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/HTTPClient/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/WiFi/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/WiFiClientSecure/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/HTTPUpdate/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/Update/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/SPI/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/FS/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/SPIFFS/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/Preferences/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/SD/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/ESPmDNS/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/Wire/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/RadioHead $BUILD/sketch/WiPhone.ino.cpp -o $BUILD/sketch/WiPhone.ino.cpp.o
+    $ARDUINO_PACKAGES/WiPhone/tools/xtensa-esp32-elf-gcc/1.22.0-80-g6c4433a-5.2.0/bin/xtensa-esp32-elf-g++ -DESP_PLATFORM "-DMBEDTLS_CONFIG_FILE=\"mbedtls/esp_config.h\"" -DHAVE_CONFIG_H -DGCC_NOT_5_2_0=0 -DWITH_POSIX -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/config -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/app_trace -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/app_update -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/asio -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/bootloader_support -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/bt -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/coap -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/console -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/driver -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/efuse -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp-tls -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp32 -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_adc_cal -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_event -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_http_client -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_http_server -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_https_ota -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_https_server -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_ringbuf -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp_websocket_client -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/espcoredump -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/ethernet -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/expat -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/fatfs -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/freemodbus -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/freertos -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/heap -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/idf_test -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/jsmn -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/json -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/libsodium -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/log -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/lwip -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/mbedtls -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/mdns -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/micro-ecc -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/mqtt -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/newlib -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/nghttp -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/nimble -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/nvs_flash -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/openssl -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/protobuf-c -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/protocomm -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/pthread -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/sdmmc -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/smartconfig_ack -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/soc -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/spi_flash -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/spiffs -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/tcp_transport -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/tcpip_adapter -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/ulp -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/unity -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/vfs -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/wear_levelling -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/wifi_provisioning -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/wpa_supplicant -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/xtensa-debug-module -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp-face -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp32-camera -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/esp-face -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/tools/sdk/include/fb_gfx -std=gnu++11 -Os -g3 -Wpointer-arith -fexceptions -fstack-protector -ffunction-sections -fdata-sections -fstrict-volatile-bitfields -mlongcalls -nostdlib -w -Wno-error=maybe-uninitialized -Wno-error=unused-function -Wno-error=unused-but-set-variable -Wno-error=unused-variable -Wno-error=deprecated-declarations -Wno-unused-parameter -Wno-unused-but-set-parameter -Wno-missing-field-initializers -Wno-sign-compare -fno-rtti -MMD -c -DF_CPU=240000000L -DARDUINO=10816 -DARDUINO_WiPhone -DARDUINO_ARCH_ESP32 "-DARDUINO_BOARD=\"WiPhone\"" "-DARDUINO_VARIANT=\"wiphone\"" -DESP32 -DCORE_DEBUG_LEVEL=$CORE_DEBUG -DBOARD_HAS_PSRAM -mfix-esp32-psram-cache-issue -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/cores/esp32 -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/variants/wiphone -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/ESP32/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/HTTPClient/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/WiFi/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/WiFiClientSecure/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/HTTPUpdate/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/Update/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/SPI/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/FS/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/SPIFFS/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/Preferences/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/SD/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/ESPmDNS/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/Wire/src -I$ARDUINO_PACKAGES/WiPhone/hardware/esp32/0.1.2/libraries/RadioHead $BUILD/sketch/WiPhone.ino.cpp -o $BUILD/sketch/WiPhone.ino.cpp.o
     #echo =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
     echo "* create elf"
